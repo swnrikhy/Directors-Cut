@@ -1,21 +1,33 @@
+'use client';
 
-import React, { useState, useCallback } from 'react';
-import { generateVideoPrompts } from './services/geminiService';
-import type { VideoPrompt } from './types';
-import { PromptTable } from './components/PromptTable';
-import { Spinner } from './components/Spinner';
+import React, { useState, useCallback, useEffect } from 'react';
+import { generateVideoPrompts } from '../services/geminiService';
+import { generateOpenAIPrompts } from '../services/openaiService';
+import type { VideoPrompt } from '../types';
+import { PromptTable } from '../components/PromptTable';
+import { Spinner } from '../components/Spinner';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Clock, Palette, Zap, Wand2, Copy, Check, Info } from 'lucide-react';
-import { useEffect } from 'react';
+import { Sparkles, Clock, Palette, Zap, Wand2, Copy, Check, Info, Key } from 'lucide-react';
 
-import { StyleReferenceModal } from './components/StyleReferenceModal';
-import { ART_STYLE_REFS, LIGHTING_STYLE_REFS, COLOR_PALETTE_REFS } from './constants/styleReferences';
+import { ApiKeyModal } from '../components/ApiKeyModal';
+import { StyleReferenceModal } from '../components/StyleReferenceModal';
+import { ART_STYLE_REFS, LIGHTING_STYLE_REFS, COLOR_PALETTE_REFS } from '../constants/styleReferences';
+import { Provider } from '../components/ModelSelector';
+
+declare global {
+  interface Window {
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
 
 const ART_STYLES = ART_STYLE_REFS.map(r => r.name);
 const LIGHTING_STYLES = LIGHTING_STYLE_REFS.map(r => r.name);
 const COLOR_PALETTES = COLOR_PALETTE_REFS.map(r => r.name);
 
-const App: React.FC = () => {
+export default function Home() {
   const [narrative, setNarrative] = useState<string>('');
   const [minutes, setMinutes] = useState<number>(1);
   const [seconds, setSeconds] = useState<number>(0);
@@ -27,11 +39,89 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState<boolean>(false);
   const [activeModal, setActiveModal] = useState<'art' | 'lighting' | 'palette' | null>(null);
+  const [apiKeySelected, setApiKeySelected] = useState<boolean>(false);
+  const [userApiKeys, setUserApiKeys] = useState<{ gemini?: string; openai?: string }>({});
+  const [showApiKeyModal, setShowApiKeyModal] = useState<boolean>(false);
+  const [provider, setProvider] = useState<'gemini' | 'openai'>('gemini');
+  const [model, setModel] = useState<string>('gemini-3.1-pro-preview');
 
   useEffect(() => {
     const root = window.document.documentElement;
+    root.classList.remove('light');
     root.classList.add('dark');
+
+    const checkApiKey = async () => {
+      if (window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setApiKeySelected(hasKey);
+      } else {
+        // Check local storage for user provided keys
+        const storedGeminiKey = localStorage.getItem('gemini_api_key');
+        const storedOpenaiKey = localStorage.getItem('openai_api_key');
+        
+        const keys = {
+          gemini: storedGeminiKey || undefined,
+          openai: storedOpenaiKey || undefined,
+        };
+        
+        setUserApiKeys(keys);
+
+        if (storedGeminiKey || storedOpenaiKey) {
+          setApiKeySelected(true);
+          // Default to available provider
+          if (!storedGeminiKey && storedOpenaiKey) {
+            setProvider('openai');
+            setModel('gpt-4o');
+          }
+        } else {
+          // If no key found in local storage, prompt user
+          setApiKeySelected(false);
+          setShowApiKeyModal(true);
+        }
+      }
+    };
+    checkApiKey();
   }, []);
+
+  const handleSaveApiKeys = (data: { 
+    keys: { gemini?: string; openai?: string };
+    settings: { provider: Provider; model: string };
+  }) => {
+    if (data.keys.gemini) localStorage.setItem('gemini_api_key', data.keys.gemini);
+    if (data.keys.openai) localStorage.setItem('openai_api_key', data.keys.openai);
+    
+    setUserApiKeys(prev => ({ ...prev, ...data.keys }));
+    setProvider(data.settings.provider);
+    setModel(data.settings.model);
+    
+    setApiKeySelected(true);
+    setShowApiKeyModal(false);
+  };
+
+  const handleRemoveApiKey = (providerToRemove: 'gemini' | 'openai') => {
+    if (providerToRemove === 'gemini') {
+      localStorage.removeItem('gemini_api_key');
+      setUserApiKeys(prev => ({ ...prev, gemini: undefined }));
+    } else {
+      localStorage.removeItem('openai_api_key');
+      setUserApiKeys(prev => ({ ...prev, openai: undefined }));
+    }
+    
+    // If no keys left, show modal
+    if ((providerToRemove === 'gemini' && !userApiKeys.openai) || 
+        (providerToRemove === 'openai' && !userApiKeys.gemini)) {
+      setApiKeySelected(false);
+    }
+  };
+
+  const openApiKeySettings = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      setApiKeySelected(true);
+    } else {
+      setShowApiKeyModal(true);
+    }
+  };
 
   const adjustTime = (amount: number) => {
     const total = minutes * 60 + seconds + amount;
@@ -58,7 +148,27 @@ const App: React.FC = () => {
     setPrompts([]);
 
     try {
-      const generatedPrompts = await generateVideoPrompts(narrative, totalDuration, 5, artStyle, lightingStyle, colorPalette);
+      let generatedPrompts: VideoPrompt[] = [];
+      
+      if (provider === 'gemini') {
+        // Pass the userApiKey if available
+        generatedPrompts = await generateVideoPrompts(
+          narrative, 
+          totalDuration, 
+          5, 
+          artStyle, 
+          lightingStyle, 
+          colorPalette, 
+          userApiKeys.gemini || undefined,
+          model
+        );
+      } else {
+        if (!userApiKeys.openai) {
+          throw new Error("OpenAI API Key is missing. Please configure it in settings.");
+        }
+        generatedPrompts = await generateOpenAIPrompts(narrative, totalDuration, 5, artStyle, lightingStyle, colorPalette, userApiKeys.openai, model);
+      }
+      
       setPrompts(generatedPrompts);
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
@@ -67,7 +177,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [narrative, minutes, seconds, artStyle, lightingStyle, colorPalette]);
+  }, [narrative, minutes, seconds, artStyle, lightingStyle, colorPalette, provider, model, userApiKeys]);
 
   const handleCopyAll = useCallback(async () => {
     const allPromptsText = prompts.map(p => p.prompt).join('\n\n');
@@ -80,21 +190,56 @@ const App: React.FC = () => {
     }
   }, [prompts]);
 
+  if (!apiKeySelected) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-900 text-white">
+        <div className="glass p-8 rounded-2xl text-center max-w-md">
+          <Sparkles className="w-12 h-12 text-purple-400 mx-auto mb-6" />
+          <h1 className="text-3xl font-bold mb-4">AI Configuration Required</h1>
+          <p className="text-gray-400 mb-6">
+            To use this tool, please configure your AI provider settings.
+            This ensures access to advanced features like video generation.
+          </p>
+          <button
+            onClick={openApiKeySettings}
+            className="btn-primary w-full"
+          >
+            Configure AI
+          </button>
+          <p className="text-xs text-gray-500 mt-4">
+            Learn more about billing: <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">ai.google.dev/gemini-api/docs/billing</a>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen py-16 px-4 sm:px-8 lg:px-12 relative overflow-hidden">
       {/* Decorative Background Elements */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full blur-[120px] -z-10 animate-pulse bg-purple-600/20" />
-      <div className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-[120px] -z-10 bg-pink-600/10" />
+      <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full blur-[120px] -z-10 animate-pulse transition-colors duration-500 bg-purple-600/20" />
+      <div className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-[120px] -z-10 transition-colors duration-500 bg-pink-600/10" />
 
       <div className="max-w-6xl mx-auto">
         <header className="text-center mb-16 relative">
+          <div className="absolute right-0 top-0">
+            <button
+              onClick={openApiKeySettings}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl glass hover:bg-white/10 transition-all duration-300 group shadow-sm text-xs font-bold uppercase tracking-widest opacity-60 hover:opacity-100"
+              title="AI Settings"
+            >
+              <Key className="w-4 h-4" />
+              <span className="hidden sm:inline">AI</span>
+            </button>
+          </div>
+
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--surface-color)] border border-[var(--border-color)] mb-6"
           >
             <Sparkles className="w-4 h-4 text-purple-400" />
-            <span className="text-xs font-bold tracking-widest uppercase opacity-60">AI-Powered Cinematic Tool</span>
+            <span className="text-xs font-bold tracking-widest uppercase opacity-70 dark:opacity-60">AI-Powered Cinematic Tool</span>
           </motion.div>
           
           <motion.h1 
@@ -126,7 +271,7 @@ const App: React.FC = () => {
           >
             <div className="glass p-8 space-y-6">
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-40">
+                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-60 dark:opacity-40">
                   <Wand2 className="w-3 h-3" /> The Narrative
                 </label>
                 <textarea
@@ -139,7 +284,7 @@ const App: React.FC = () => {
               </div>
 
               <div className="space-y-4">
-                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-40">
+                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-60 dark:opacity-40">
                   <Clock className="w-3 h-3" /> Total Duration
                 </label>
                 
@@ -153,9 +298,9 @@ const App: React.FC = () => {
                         className="w-full bg-transparent text-2xl font-mono text-center focus:outline-none"
                         placeholder="00"
                       />
-                      <span className="text-[10px] uppercase tracking-widest opacity-20 block">Min</span>
+                      <span className="text-[10px] uppercase tracking-widest opacity-40 dark:opacity-20 block">Min</span>
                     </div>
-                    <span className="text-2xl font-mono opacity-20">:</span>
+                    <span className="text-2xl font-mono opacity-40 dark:opacity-20">:</span>
                     <div className="flex-1 text-center">
                       <input
                         type="number"
@@ -164,7 +309,7 @@ const App: React.FC = () => {
                         className="w-full bg-transparent text-2xl font-mono text-center focus:outline-none"
                         placeholder="00"
                       />
-                      <span className="text-[10px] uppercase tracking-widest opacity-20 block">Sec</span>
+                      <span className="text-[10px] uppercase tracking-widest opacity-40 dark:opacity-20 block">Sec</span>
                     </div>
                   </div>
                 </div>
@@ -174,7 +319,7 @@ const App: React.FC = () => {
                     <button
                       key={amount}
                       onClick={() => adjustTime(amount)}
-                      className="px-3 py-1.5 rounded-lg bg-[var(--surface-color)] hover:bg-[var(--surface-color)]/20 border border-[var(--border-color)] text-[10px] font-bold uppercase tracking-widest opacity-40 hover:opacity-100 transition-all"
+                      className="px-3 py-1.5 rounded-lg bg-[var(--surface-color)] hover:bg-[var(--surface-color)]/20 border border-[var(--border-color)] text-[10px] font-bold uppercase tracking-widest opacity-60 dark:opacity-40 hover:opacity-100 transition-all"
                     >
                       +{amount < 60 ? `${amount}s` : `${amount / 60}m`}
                     </button>
@@ -191,7 +336,7 @@ const App: React.FC = () => {
               <div className="space-y-4 pt-4 border-t border-[var(--border-color)]">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-40">
+                    <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-60 dark:opacity-40">
                       <Palette className="w-3 h-3" /> Visual Style
                     </label>
                     <button
@@ -214,10 +359,10 @@ const App: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold uppercase tracking-widest opacity-30">Lighting</label>
+                      <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 dark:opacity-30">Lighting</label>
                       <button
                         onClick={() => setActiveModal('lighting')}
-                        className="text-[8px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 transition-colors"
+                        className="text-[8px] font-bold uppercase tracking-widest text-brand-primary dark:text-purple-400 hover:opacity-80 transition-colors"
                       >
                         Guide
                       </button>
@@ -233,10 +378,10 @@ const App: React.FC = () => {
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold uppercase tracking-widest opacity-30">Palette</label>
+                      <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 dark:opacity-30">Palette</label>
                       <button
                         onClick={() => setActiveModal('palette')}
-                        className="text-[8px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 transition-colors"
+                        className="text-[8px] font-bold uppercase tracking-widest text-brand-primary dark:text-purple-400 hover:opacity-80 transition-colors"
                       >
                         Guide
                       </button>
@@ -294,7 +439,7 @@ const App: React.FC = () => {
             {prompts.length > 0 ? (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xs font-bold uppercase tracking-widest opacity-40">Generated Sequence</h2>
+                  <h2 className="text-xs font-bold uppercase tracking-widest opacity-60 dark:opacity-40">Generated Sequence</h2>
                   <button
                     onClick={handleCopyAll}
                     className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-brand-primary hover:text-brand-secondary transition-colors"
@@ -310,19 +455,23 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 rounded-full bg-[var(--surface-color)] flex items-center justify-center mb-6">
                   <Wand2 className="w-8 h-8 opacity-10" />
                 </div>
-                <h3 className="text-xl font-medium opacity-40 mb-2 font-serif italic">Awaiting your vision</h3>
-                <p className="text-sm opacity-20 max-w-xs">Enter your narrative on the left to generate a cinematic sequence of prompts.</p>
+                <h3 className="text-xl font-medium opacity-40 mb-2 font-serif italic">
+                  Awaiting your vision
+                </h3>
+                <p className="text-sm opacity-20 max-w-xs">
+                  Enter your narrative on the left to generate a cinematic sequence.
+                </p>
               </div>
             )}
           </motion.div>
         </div>
 
-        <footer className="mt-24 pt-8 border-t border-[var(--border-color)] flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] font-bold uppercase tracking-[0.2em] opacity-20">
+        <footer className="mt-24 pt-8 border-t border-[var(--border-color)] flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] font-bold uppercase tracking-[0.2em] opacity-40 dark:opacity-20">
           <p>© 2026 Director's Cut AI</p>
           <div className="flex items-center gap-6">
-            <span>Powered by Gemini 3.1 Pro</span>
+            <span>Powered by {provider === 'gemini' ? 'Google Gemini' : 'OpenAI GPT'}</span>
             <span className="w-1 h-1 bg-current opacity-20 rounded-full" />
-            <span>Optimized for Video Gen</span>
+            <span>{model}</span>
           </div>
         </footer>
       </div>
@@ -353,8 +502,16 @@ const App: React.FC = () => {
         onSelect={setColorPalette}
         currentValue={colorPalette}
       />
+
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onSave={handleSaveApiKeys}
+        savedKeys={userApiKeys}
+        currentProvider={provider}
+        currentModel={model}
+        onRemove={handleRemoveApiKey}
+      />
     </div>
   );
-};
-
-export default App;
+}
