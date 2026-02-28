@@ -1,14 +1,19 @@
-
+import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI, Type } from "@google/genai";
-import type { VideoPrompt } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable is not set.");
-}
+export async function POST(req: NextRequest) {
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "Gemini API key is not configured on the server." },
+      { status: 500 }
+    );
+  }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
+  const { narrative, totalDuration, interval, artStyle, lightingStyle, colorPalette } = await req.json();
 
-export async function generateVideoPrompts(narrative: string, totalDuration: number, interval: number, artStyle: string, lightingStyle: string, colorPalette: string): Promise<VideoPrompt[]> {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -22,7 +27,7 @@ Break down the narrative into distinct, sequential scenes or parts, where each p
 For each part, you must identify the original narrative segment, generate a concise, visually descriptive video prompt suitable for a video generation AI, and specify the duration of that segment.
 The total number of segments should correspond to the total duration divided by the interval.
 The generated video prompts should be in the style of: ${artStyle}, with ${lightingStyle} lighting, and a ${colorPalette} color palette. 
-Crucially, you should also intelligently include appropriate camera angles (e.g., wide shot, close-up, low angle) and time of day/lighting conditions (e.g., golden hour, night, neon glow) for each scene to make the prompts more cinematic and professional, ensuring they fit the context of the narrative.
+Crucially, the prompts must accurately reflect the specific actions, characters, and setting described in the narrative segment.
 The final output must be a JSON array of objects.`,
         responseMimeType: "application/json",
         responseSchema: {
@@ -49,25 +54,14 @@ The final output must be a JSON array of objects.`,
       },
     });
 
-    const jsonText = response.text.trim();
-    if (!jsonText) {
-      throw new Error("Received an empty response from the API.");
-    }
-    
-    // Attempt to parse the JSON response.
+    const jsonText = response.text?.trim() || "[]";
     const result = JSON.parse(jsonText);
-
-    // Basic validation to ensure the result is an array.
-    if (!Array.isArray(result)) {
-        throw new Error("API response is not a valid array.");
-    }
-
-    return result as VideoPrompt[];
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Error calling Gemini API:", error);
-    if (error instanceof Error) {
-        throw new Error(`Gemini API Error: ${error.message}`);
-    }
-    throw new Error("An unknown error occurred while communicating with the Gemini API.");
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "An unknown error occurred" },
+      { status: 500 }
+    );
   }
 }

@@ -7,6 +7,12 @@
 
   --color-brand-primary: #8B5CF6;
   --color-brand-secondary: #EC4899;
+  
+  /* Theme Variables */
+  --color-app-bg: var(--bg-color);
+  --color-app-text: var(--text-color);
+  --color-app-surface: var(--surface-color);
+  --color-app-border: var(--border-color);
 }
 
 :root {
@@ -47,11 +53,15 @@
 }
 
 .glass {
-  @apply bg-[var(--surface-color)] backdrop-blur-xl border border-[var(--border-color)] rounded-2xl;
+  @apply bg-[var(--surface-color)] backdrop-blur-xl border border-[var(--border-color)] rounded-2xl shadow-sm;
+}
+
+.dark .glass {
+  @apply shadow-none;
 }
 
 .text-gradient {
-  @apply bg-clip-text text-transparent bg-gradient-to-br from-[#1e293b] via-[#334155] to-[#475569];
+  @apply bg-clip-text text-transparent bg-gradient-to-br from-[#0f172a] via-[#334155] to-[#64748b];
 }
 
 .dark .text-gradient {

@@ -5,21 +5,27 @@ import type { VideoPrompt } from './types';
 import { PromptTable } from './components/PromptTable';
 import { Spinner } from './components/Spinner';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Clock, Palette, Zap, Wand2, Copy, Check, Info, Key } from 'lucide-react';
-import { useEffect } from 'react';
+import { Sparkles, Clock, Palette, Zap, Wand2, Copy, Check, Info } from 'lucide-react';
 
-import { StyleReferenceModal } from './components/StyleReferenceModal';
-import { ApiKeyModal } from './components/ApiKeyModal';
-import { ART_STYLE_REFS, LIGHTING_STYLE_REFS, COLOR_PALETTE_REFS } from './constants/styleReferences';
+const ART_STYLES = [
+  '3D Pixar', 'Anime', 'Cartoon', 'Cinematic', 'Cyberpunk', 
+  'Fantasy Art', 'Impressionistic', 'Oil Painting', 'Realistic', 
+  'Sci-Fi', 'Watercolor',
+];
 
-const ART_STYLES = ART_STYLE_REFS.map(r => r.name);
-const LIGHTING_STYLES = LIGHTING_STYLE_REFS.map(r => r.name);
-const COLOR_PALETTES = COLOR_PALETTE_REFS.map(r => r.name);
+const LIGHTING_STYLES = [
+  'Backlight', 'Dramatic Lighting', 'High-Key Lighting', 'Low-Key Lighting',
+  'Natural Light', 'Neon Glow', 'Soft Lighting', 'Volumetric Lighting',
+];
+
+const COLOR_PALETTES = [
+  'Black and White', 'Cool Tones', 'Monochromatic', 'Muted Tones',
+  'Pastel Colors', 'Sepia', 'Vibrant Colors', 'Warm Tones',
+];
 
 const App: React.FC = () => {
   const [narrative, setNarrative] = useState<string>('');
-  const [minutes, setMinutes] = useState<number>(1);
-  const [seconds, setSeconds] = useState<number>(0);
+  const [duration, setDuration] = useState<string>('00:00');
   const [artStyle, setArtStyle] = useState<string>('Cinematic');
   const [lightingStyle, setLightingStyle] = useState<string>('Natural Light');
   const [colorPalette, setColorPalette] = useState<string>('Vibrant Colors');
@@ -27,30 +33,63 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState<boolean>(false);
-  const [activeModal, setActiveModal] = useState<'art' | 'lighting' | 'palette' | null>(null);
-  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
-  const [apiKey, setApiKey] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('gemini_api_key') || '';
+  const [showStyleGuide, setShowStyleGuide] = useState<boolean>(false);
+  const [activeGuideTab, setActiveGuideTab] = useState<'style' | 'lighting' | 'palette'>('style');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const styleReferences = [
+    { name: '3D Pixar', desc: 'High-quality 3D animation, expressive characters, vibrant lighting.', seed: 'pixar-3d-character' },
+    { name: 'Anime', desc: 'Japanese animation style, vibrant colors, expressive characters.', seed: 'anime-manga-art' },
+    { name: 'Cartoon', desc: 'Bold outlines, flat colors, playful and exaggerated.', seed: 'cartoon-illustration' },
+    { name: 'Cinematic', desc: 'High contrast, dramatic lighting, 35mm film look.', seed: 'cinematic-film-still' },
+    { name: 'Cyberpunk', desc: 'Neon lights, dark rainy streets, high-tech low-life.', seed: 'cyberpunk-city-neon' },
+    { name: 'Fantasy Art', desc: 'Epic scales, magical elements, mythical creatures.', seed: 'fantasy-landscape-dragon' },
+    { name: 'Impressionistic', desc: 'Emphasis on light and movement, short dabs of color.', seed: 'impressionist-painting-monet' },
+    { name: 'Oil Painting', desc: 'Thick brushstrokes, rich textures, classical feel.', seed: 'oil-painting-canvas' },
+    { name: 'Realistic', desc: 'Lifelike details, natural lighting, photographic quality.', seed: 'realistic-portrait-photo' },
+    { name: 'Sci-Fi', desc: 'Futuristic technology, space exploration, sleek designs.', seed: 'sci-fi-spaceship-future' },
+    { name: 'Watercolor', desc: 'Soft edges, fluid colors, paper texture.', seed: 'watercolor-painting-soft' },
+  ];
+
+  const lightingReferences = [
+    { name: 'Backlight', desc: 'Light from behind, creates silhouettes and rim light.', seed: 'backlight-silhouette-sunset' },
+    { name: 'Dramatic Lighting', desc: 'High contrast, deep shadows, moody and intense.', seed: 'dramatic-noir-lighting' },
+    { name: 'High-Key Lighting', desc: 'Bright, minimal shadows, optimistic and clean.', seed: 'high-key-studio-bright' },
+    { name: 'Low-Key Lighting', desc: 'Dark, heavy shadows, mysterious and suspenseful.', seed: 'low-key-moody-dark' },
+    { name: 'Natural Light', desc: 'Sunlight, soft shadows, realistic and organic.', seed: 'natural-window-sunlight' },
+    { name: 'Neon Glow', desc: 'Vibrant artificial lights, futuristic and urban.', seed: 'neon-lights-night' },
+    { name: 'Soft Lighting', desc: 'Even illumination, gentle shadows, flattering and calm.', seed: 'soft-diffused-lighting' },
+    { name: 'Volumetric Lighting', desc: 'Visible light beams, atmospheric and ethereal.', seed: 'volumetric-light-rays' },
+  ];
+
+  const paletteReferences = [
+    { name: 'Black and White', desc: 'Grayscale, timeless and dramatic.', seed: 'black-white-photography' },
+    { name: 'Cool Tones', desc: 'Blues, greens, purples, calm and professional.', seed: 'cool-blue-tones' },
+    { name: 'Monochromatic', seed: 'monochrome-blue-art', desc: 'Varying shades of a single color, focused and artistic.' },
+    { name: 'Muted Tones', desc: 'Desaturated, subtle and sophisticated.', seed: 'muted-earth-tones' },
+    { name: 'Pastel Colors', desc: 'Soft, light colors, gentle and dreamy.', seed: 'pastel-color-palette' },
+    { name: 'Sepia', desc: 'Reddish-brown tones, nostalgic and vintage.', seed: 'sepia-vintage-photo' },
+    { name: 'Vibrant Colors', desc: 'Highly saturated, energetic and bold.', seed: 'vibrant-saturated-colors' },
+    { name: 'Warm Tones', desc: 'Reds, oranges, yellows, cozy and inviting.', seed: 'warm-sunset-colors' },
+  ];
+
+  const filteredStyles = styleReferences.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredLighting = lightingReferences.filter(l => l.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredPalettes = paletteReferences.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, '');
+    if (value.length > 4) value = value.slice(0, 4);
+    
+    if (value.length >= 3) {
+      const mins = value.slice(0, value.length - 2);
+      const secs = value.slice(value.length - 2);
+      setDuration(`${mins.padStart(2, '0')}:${secs}`);
+    } else if (value.length > 0) {
+      setDuration(`00:${value.padStart(2, '0')}`);
+    } else {
+      setDuration('00:00');
     }
-    return '';
-  });
-
-  useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.add('dark');
-  }, []);
-
-  const adjustTime = (amount: number) => {
-    const total = minutes * 60 + seconds + amount;
-    if (total < 0) return;
-    setMinutes(Math.floor(total / 60));
-    setSeconds(total % 60);
-  };
-
-  const handleSaveApiKey = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem('gemini_api_key', key);
   };
 
   const handleGenerateClick = useCallback(async () => {
@@ -59,7 +98,8 @@ const App: React.FC = () => {
       return;
     }
 
-    const totalDuration = minutes * 60 + seconds;
+    const [mins, secs] = duration.split(':').map(Number);
+    const totalDuration = (mins || 0) * 60 + (secs || 0);
 
     if (totalDuration <= 0) {
       setError('Total duration must be greater than 0.');
@@ -71,7 +111,7 @@ const App: React.FC = () => {
     setPrompts([]);
 
     try {
-      const generatedPrompts = await generateVideoPrompts(narrative, totalDuration, 5, artStyle, lightingStyle, colorPalette, apiKey);
+      const generatedPrompts = await generateVideoPrompts(narrative, totalDuration, 5, artStyle, lightingStyle, colorPalette);
       setPrompts(generatedPrompts);
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
@@ -80,7 +120,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [narrative, minutes, seconds, artStyle, lightingStyle, colorPalette, apiKey]);
+  }, [narrative, duration, artStyle, lightingStyle, colorPalette]);
 
   const handleCopyAll = useCallback(async () => {
     const allPromptsText = prompts.map(p => p.prompt).join('\n\n');
@@ -94,33 +134,20 @@ const App: React.FC = () => {
   }, [prompts]);
 
   return (
-    <div className="min-h-screen py-16 px-4 sm:px-8 lg:px-12 relative overflow-hidden">
+    <div className="min-h-screen py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Decorative Background Elements */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full blur-[120px] -z-10 animate-pulse transition-colors duration-500 bg-purple-600/20" />
-      <div className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-[120px] -z-10 transition-colors duration-500 bg-pink-600/10" />
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-600/20 rounded-full blur-[120px] -z-10 animate-pulse" />
+      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-pink-600/10 rounded-full blur-[120px] -z-10" />
 
       <div className="max-w-6xl mx-auto">
-        <header className="text-center mb-16 relative">
-          <div className="absolute right-0 top-0 flex items-center gap-3">
-            <button
-              onClick={() => setIsApiKeyModalOpen(true)}
-              className="p-3 rounded-xl glass hover:bg-white/10 transition-all duration-300 group shadow-sm flex items-center gap-2"
-              title="Set API Key"
-            >
-              <Key className="w-5 h-5 text-brand-primary group-hover:rotate-12 transition-transform" />
-              <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:block opacity-70">
-                API Key
-              </span>
-            </button>
-          </div>
-
+        <header className="text-center mb-16">
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--surface-color)] border border-[var(--border-color)] mb-6"
+            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 mb-6"
           >
             <Sparkles className="w-4 h-4 text-purple-400" />
-            <span className="text-xs font-bold tracking-widest uppercase opacity-70 dark:opacity-60">AI-Powered Cinematic Tool</span>
+            <span className="text-xs font-bold tracking-widest uppercase text-white/60">AI-Powered Cinematic Tool</span>
           </motion.div>
           
           <motion.h1 
@@ -136,9 +163,9 @@ const App: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className="text-lg opacity-60 max-w-2xl mx-auto font-serif italic"
+            className="text-lg text-white/40 max-w-2xl mx-auto font-serif italic"
           >
-            Crafting cinematic prompts in the shadows of your imagination.
+            Transform your narrative vision into precise, production-ready video prompts for generative AI models.
           </motion.p>
         </header>
 
@@ -152,79 +179,48 @@ const App: React.FC = () => {
           >
             <div className="glass p-8 space-y-6">
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-40">
+                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40">
                   <Wand2 className="w-3 h-3" /> The Narrative
                 </label>
                 <textarea
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value)}
-                  placeholder="Unfold your dark tale here..."
+                  placeholder="Describe your story or sequence here..."
                   className="input-field h-64 resize-none font-serif text-lg leading-relaxed"
                   disabled={isLoading}
                 />
               </div>
 
-              <div className="space-y-4">
-                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-40">
-                  <Clock className="w-3 h-3" /> Total Duration
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40">
+                  <Clock className="w-3 h-3" /> Total Duration (MM:SS)
                 </label>
-                
-                <div className="flex items-center gap-4">
-                  <div className="flex-1 flex items-center gap-2 glass p-2 px-4">
-                    <div className="flex-1 text-center">
-                      <input
-                        type="number"
-                        value={minutes}
-                        onChange={(e) => setMinutes(Math.max(0, Number(e.target.value)))}
-                        className="w-full bg-transparent text-2xl font-mono text-center focus:outline-none"
-                        placeholder="00"
-                      />
-                      <span className="text-[10px] uppercase tracking-widest opacity-20 block">Min</span>
-                    </div>
-                    <span className="text-2xl font-mono opacity-20">:</span>
-                    <div className="flex-1 text-center">
-                      <input
-                        type="number"
-                        value={seconds}
-                        onChange={(e) => setSeconds(Math.max(0, Math.min(59, Number(e.target.value))))}
-                        className="w-full bg-transparent text-2xl font-mono text-center focus:outline-none"
-                        placeholder="00"
-                      />
-                      <span className="text-[10px] uppercase tracking-widest opacity-20 block">Sec</span>
-                    </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={duration}
+                    onChange={handleDurationChange}
+                    placeholder="00:00"
+                    className="input-field font-mono text-center tracking-widest text-xl"
+                    disabled={isLoading}
+                  />
+                  <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-white/20">Time</span>
                   </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {[15, 30, 60, 300].map((amount) => (
-                    <button
-                      key={amount}
-                      onClick={() => adjustTime(amount)}
-                      className="px-3 py-1.5 rounded-lg bg-[var(--surface-color)] hover:bg-[var(--surface-color)]/20 border border-[var(--border-color)] text-[10px] font-bold uppercase tracking-widest opacity-40 hover:opacity-100 transition-all"
-                    >
-                      +{amount < 60 ? `${amount}s` : `${amount / 60}m`}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => { setMinutes(0); setSeconds(0); }}
-                    className="px-3 py-1.5 rounded-lg bg-red-500/5 hover:bg-red-500/10 border border-red-500/20 text-[10px] font-bold uppercase tracking-widest text-red-500 transition-all ml-auto"
-                  >
-                    Reset
-                  </button>
                 </div>
               </div>
 
-              <div className="space-y-4 pt-4 border-t border-[var(--border-color)]">
+              <div className="space-y-4 pt-4 border-t border-white/5">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-40">
+                    <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40">
                       <Palette className="w-3 h-3" /> Visual Style
                     </label>
-                    <button
-                      onClick={() => setActiveModal('art')}
-                      className="text-[10px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 transition-colors"
+                    <button 
+                      onClick={() => setShowStyleGuide(true)}
+                      className="text-[10px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1"
                     >
-                      View Guide
+                      <Info className="w-3 h-3" /> Style Guide
                     </button>
                   </div>
                   <select
@@ -240,10 +236,10 @@ const App: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold uppercase tracking-widest opacity-30">Lighting</label>
-                      <button
-                        onClick={() => setActiveModal('lighting')}
-                        className="text-[8px] font-bold uppercase tracking-widest text-purple-400 hover:opacity-80 transition-colors"
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-white/30">Lighting</label>
+                      <button 
+                        onClick={() => { setActiveGuideTab('lighting'); setShowStyleGuide(true); }}
+                        className="text-[8px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 transition-colors"
                       >
                         Guide
                       </button>
@@ -259,10 +255,10 @@ const App: React.FC = () => {
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold uppercase tracking-widest opacity-30">Palette</label>
-                      <button
-                        onClick={() => setActiveModal('palette')}
-                        className="text-[8px] font-bold uppercase tracking-widest text-purple-400 hover:opacity-80 transition-colors"
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-white/30">Palette</label>
+                      <button 
+                        onClick={() => { setActiveGuideTab('palette'); setShowStyleGuide(true); }}
+                        className="text-[8px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 transition-colors"
                       >
                         Guide
                       </button>
@@ -281,15 +277,15 @@ const App: React.FC = () => {
 
               <button
                 onClick={handleGenerateClick}
-                disabled={isLoading || !narrative.trim() || (minutes === 0 && seconds === 0)}
-                className="btn-primary w-full flex items-center justify-center gap-3 group shadow-lg"
+                disabled={isLoading || !narrative.trim() || duration === '00:00'}
+                className="btn-primary w-full flex items-center justify-center gap-3 group"
               >
                 {isLoading ? (
                   <Spinner />
                 ) : (
                   <>
                     <Zap className="w-4 h-4 fill-current group-hover:animate-bounce" />
-                    <span>Ignite Sequence</span>
+                    <span>Generate Sequence</span>
                   </>
                 )}
               </button>
@@ -320,7 +316,7 @@ const App: React.FC = () => {
             {prompts.length > 0 ? (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xs font-bold uppercase tracking-widest opacity-40">Generated Sequence</h2>
+                  <h2 className="text-xs font-bold uppercase tracking-widest text-white/40">Generated Sequence</h2>
                   <button
                     onClick={handleCopyAll}
                     className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-brand-primary hover:text-brand-secondary transition-colors"
@@ -332,64 +328,192 @@ const App: React.FC = () => {
                 <PromptTable prompts={prompts} />
               </div>
             ) : (
-              <div className="h-full min-h-[400px] glass flex flex-col items-center justify-center text-center p-12 border-dashed border-[var(--border-color)]">
-                <div className="w-16 h-16 rounded-full bg-[var(--surface-color)] flex items-center justify-center mb-6">
-                  <Wand2 className="w-8 h-8 opacity-10" />
+              <div className="h-full min-h-[400px] glass flex flex-col items-center justify-center text-center p-12 border-dashed border-white/5">
+                <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-6">
+                  <Wand2 className="w-8 h-8 text-white/10" />
                 </div>
-                <h3 className="text-xl font-medium opacity-40 mb-2 font-serif italic">
-                  Awaiting your vision
-                </h3>
-                <p className="text-sm opacity-20 max-w-xs">
-                  Enter your narrative on the left to generate a cinematic sequence.
-                </p>
+                <h3 className="text-xl font-medium text-white/20 mb-2 font-serif italic">Awaiting your vision</h3>
+                <p className="text-sm text-white/10 max-w-xs">Enter your narrative on the left to generate a cinematic sequence of prompts.</p>
               </div>
             )}
           </motion.div>
         </div>
 
-        <footer className="mt-24 pt-8 border-t border-[var(--border-color)] flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] font-bold uppercase tracking-[0.2em] opacity-20">
+        <footer className="mt-24 pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] font-bold uppercase tracking-[0.2em] text-white/20">
           <p>© 2026 Director's Cut AI</p>
           <div className="flex items-center gap-6">
             <span>Powered by Gemini 3.1 Pro</span>
-            <span className="w-1 h-1 bg-current opacity-20 rounded-full" />
+            <span className="w-1 h-1 bg-white/20 rounded-full" />
             <span>Optimized for Video Gen</span>
           </div>
         </footer>
       </div>
 
-      <StyleReferenceModal
-        isOpen={activeModal === 'art'}
-        onClose={() => setActiveModal(null)}
-        title="Art Styles"
-        references={ART_STYLE_REFS}
-        onSelect={setArtStyle}
-        currentValue={artStyle}
-      />
-
-      <StyleReferenceModal
-        isOpen={activeModal === 'lighting'}
-        onClose={() => setActiveModal(null)}
-        title="Lighting Styles"
-        references={LIGHTING_STYLE_REFS}
-        onSelect={setLightingStyle}
-        currentValue={lightingStyle}
-      />
-
-      <StyleReferenceModal
-        isOpen={activeModal === 'palette'}
-        onClose={() => setActiveModal(null)}
-        title="Color Palettes"
-        references={COLOR_PALETTE_REFS}
-        onSelect={setColorPalette}
-        currentValue={colorPalette}
-      />
-
-      <ApiKeyModal
-        isOpen={isApiKeyModalOpen}
-        onClose={() => setIsApiKeyModalOpen(false)}
-        onSave={handleSaveApiKey}
-        savedKey={apiKey}
-      />
+      {/* Style Guide Modal */}
+      <AnimatePresence>
+        {showStyleGuide && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowStyleGuide(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-4xl max-h-[80vh] overflow-hidden glass flex flex-col"
+            >
+              <div className="p-6 border-b border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex flex-col sm:flex-row items-center gap-6 w-full sm:w-auto">
+                  <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2 whitespace-nowrap">
+                    <Palette className="w-5 h-5 text-purple-400" /> Reference Guide
+                  </h2>
+                  <div className="flex items-center bg-white/5 rounded-lg p-1 w-full sm:w-auto overflow-x-auto">
+                    <button 
+                      onClick={() => { setActiveGuideTab('style'); setSearchQuery(''); }}
+                      className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all whitespace-nowrap ${activeGuideTab === 'style' ? 'bg-purple-600 text-white' : 'text-white/40 hover:text-white'}`}
+                    >
+                      Styles
+                    </button>
+                    <button 
+                      onClick={() => { setActiveGuideTab('lighting'); setSearchQuery(''); }}
+                      className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all whitespace-nowrap ${activeGuideTab === 'lighting' ? 'bg-purple-600 text-white' : 'text-white/40 hover:text-white'}`}
+                    >
+                      Lighting
+                    </button>
+                    <button 
+                      onClick={() => { setActiveGuideTab('palette'); setSearchQuery(''); }}
+                      className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all whitespace-nowrap ${activeGuideTab === 'palette' ? 'bg-purple-600 text-white' : 'text-white/40 hover:text-white'}`}
+                    >
+                      Palettes
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-4 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:w-48">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search A-Z..."
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500 transition-colors"
+                    />
+                  </div>
+                  <button 
+                    onClick={() => setShowStyleGuide(false)}
+                    className="p-2 hover:bg-white/5 rounded-full transition-colors flex-shrink-0"
+                  >
+                    <Zap className="w-5 h-5 text-white/40 rotate-45" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-6 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {activeGuideTab === 'style' && filteredStyles.map((style) => (
+                  <button 
+                    key={style.name} 
+                    onClick={() => { setArtStyle(style.name); }}
+                    className={`flex gap-4 p-4 rounded-xl border transition-all text-left group ${artStyle === style.name ? 'bg-purple-600/20 border-purple-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
+                  >
+                    <div className="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 relative">
+                      <img 
+                        src={`https://picsum.photos/seed/${style.seed}/200/200`} 
+                        alt={style.name}
+                        className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500"
+                      />
+                      {artStyle === style.name && (
+                        <div className="absolute inset-0 bg-purple-600/40 flex items-center justify-center">
+                          <Check className="w-8 h-8 text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                        {style.name}
+                        {artStyle === style.name && <span className="text-[8px] bg-purple-500 text-white px-1.5 py-0.5 rounded uppercase">Active</span>}
+                      </h3>
+                      <p className="text-xs text-white/40 leading-relaxed">{style.desc}</p>
+                    </div>
+                  </button>
+                ))}
+                {activeGuideTab === 'lighting' && filteredLighting.map((light) => (
+                  <button 
+                    key={light.name} 
+                    onClick={() => { setLightingStyle(light.name); }}
+                    className={`flex gap-4 p-4 rounded-xl border transition-all text-left group ${lightingStyle === light.name ? 'bg-purple-600/20 border-purple-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
+                  >
+                    <div className="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 relative">
+                      <img 
+                        src={`https://picsum.photos/seed/${light.seed}/200/200`} 
+                        alt={light.name}
+                        className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500"
+                      />
+                      {lightingStyle === light.name && (
+                        <div className="absolute inset-0 bg-purple-600/40 flex items-center justify-center">
+                          <Check className="w-8 h-8 text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                        {light.name}
+                        {lightingStyle === light.name && <span className="text-[8px] bg-purple-500 text-white px-1.5 py-0.5 rounded uppercase">Active</span>}
+                      </h3>
+                      <p className="text-xs text-white/40 leading-relaxed">{light.desc}</p>
+                    </div>
+                  </button>
+                ))}
+                {activeGuideTab === 'palette' && filteredPalettes.map((palette) => (
+                  <button 
+                    key={palette.name} 
+                    onClick={() => { setColorPalette(palette.name); }}
+                    className={`flex gap-4 p-4 rounded-xl border transition-all text-left group ${colorPalette === palette.name ? 'bg-purple-600/20 border-purple-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
+                  >
+                    <div className="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 relative">
+                      <img 
+                        src={`https://picsum.photos/seed/${palette.seed}/200/200`} 
+                        alt={palette.name}
+                        className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500"
+                      />
+                      {colorPalette === palette.name && (
+                        <div className="absolute inset-0 bg-purple-600/40 flex items-center justify-center">
+                          <Check className="w-8 h-8 text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                        {palette.name}
+                        {colorPalette === palette.name && <span className="text-[8px] bg-purple-500 text-white px-1.5 py-0.5 rounded uppercase">Active</span>}
+                      </h3>
+                      <p className="text-xs text-white/40 leading-relaxed">{palette.desc}</p>
+                    </div>
+                  </button>
+                ))}
+                
+                {((activeGuideTab === 'style' && filteredStyles.length === 0) ||
+                  (activeGuideTab === 'lighting' && filteredLighting.length === 0) ||
+                  (activeGuideTab === 'palette' && filteredPalettes.length === 0)) && (
+                  <div className="col-span-full py-12 text-center">
+                    <p className="text-white/20 text-sm italic">No matches found for "{searchQuery}"</p>
+                  </div>
+                )}
+              </div>
+              <div className="p-6 border-t border-white/10 bg-white/5 text-center">
+                <button 
+                  onClick={() => setShowStyleGuide(false)}
+                  className="btn-primary px-8 py-2 text-sm"
+                >
+                  Got it
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
