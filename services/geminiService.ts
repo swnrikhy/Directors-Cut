@@ -3,32 +3,37 @@ import { GoogleGenAI, Type } from "@google/genai";
 import type { VideoPrompt } from '../types';
 
 export async function generateVideoPrompts(
-  narrative: string,
-  totalDuration: number,
-  interval: number,
-  artStyle: string,
-  lightingStyle: string,
+  narrative: string, 
+  totalDuration: number, 
+  interval: number, 
+  artStyle: string, 
+  lightingStyle: string, 
   colorPalette: string,
-  apiKey?: string,
-  model: string = 'gemini-3.1-pro-preview'
+  userApiKey?: string
 ): Promise<VideoPrompt[]> {
-  // Use the provided API key or fallback to the environment variable.
-  const key = apiKey || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-  
-  if (!key) {
-    throw new Error("Gemini API Key is missing. Please provide an API Key.");
+  const apiKey = userApiKey || process.env.API_KEY;
+
+  if (!apiKey) {
+      throw new Error("API Key is not set. Please provide your Gemini API Key in the settings.");
   }
 
-  // Create GoogleGenAI instance right before the API call to ensure it uses the most up-to-date API key.
-  const ai = new GoogleGenAI({ apiKey: key });
+  const ai = new GoogleGenAI({ apiKey });
 
   try {
-    const prompt = `Create a detailed cinematic video prompt for a ${totalDuration} second video, broken into segments of ${interval} seconds. Each segment should have a unique narrative beat and visual description. The overall narrative is: "${narrative}". The generated video prompts should be in the style of: ${artStyle}, with ${lightingStyle} lighting, and a ${colorPalette} color palette. Provide the output as a JSON array of objects, where each object has 'narasi' (narrative segment) and 'prompt' (detailed video prompt) fields.`;
-    
     const response = await ai.models.generateContent({
-      model: model,
-      contents: [{ parts: [{ text: prompt }] }],
+      model: "gemini-3-flash-preview",
+      contents: `Narrative: ${narrative}
+Total Duration: ${totalDuration} seconds
+Interval: ${interval} seconds`,
       config: {
+        systemInstruction: `You are an expert assistant specializing in creating video storyboards.
+Your task is to take a given narrative, and a total video duration in seconds, and an interval in seconds.
+Break down the narrative into distinct, sequential scenes or parts, where each part has a duration equal to the interval.
+For each part, you must identify the original narrative segment, generate a concise, visually descriptive video prompt suitable for a video generation AI, and specify the duration of that segment.
+The total number of segments should correspond to the total duration divided by the interval.
+The generated video prompts should be in the style of: ${artStyle}, with ${lightingStyle} lighting, and a ${colorPalette} color palette. 
+Crucially, the prompts must accurately reflect the specific actions, characters, and setting described in the narrative segment.
+The final output must be a JSON array of objects.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -43,34 +48,35 @@ export async function generateVideoPrompts(
                 type: Type.STRING,
                 description: 'A concise and visually descriptive video prompt for this scene. The prompt should be creative and evocative.',
               },
+              duration: {
+                type: Type.NUMBER,
+                description: 'The duration of this scene in seconds.',
+              },
             },
-            required: ['narasi', 'prompt'],
+            required: ['narasi', 'prompt', 'duration'],
           },
         },
       },
     });
 
-    const jsonText = response.text;
+    const jsonText = response.text.trim();
     if (!jsonText) {
-      throw new Error("No response text from Gemini API.");
+      throw new Error("Received an empty response from the API.");
+    }
+    
+    // Attempt to parse the JSON response.
+    const result = JSON.parse(jsonText);
+
+    // Basic validation to ensure the result is an array.
+    if (!Array.isArray(result)) {
+        throw new Error("API response is not a valid array.");
     }
 
-    try {
-      const parsedPrompts: VideoPrompt[] = JSON.parse(jsonText);
-      return parsedPrompts;
-    } catch (e) {
-      console.error("Failed to parse JSON from Gemini API:", jsonText, e);
-      throw new Error("Failed to parse video prompts from API response.");
-    }
+    return result as VideoPrompt[];
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     if (error instanceof Error) {
-      // Check for specific API key related errors
-      if (error.message.includes("Requested entity was not found")) {
-        // This error often indicates an issue with the API key or project setup
-        throw new Error("API Key Error: Please ensure your Gemini API key is correctly selected and associated with a paid Google Cloud project. " + error.message);
-      }
-      throw new Error(`Gemini API Error: ${error.message}`);
+        throw new Error(`Gemini API Error: ${error.message}`);
     }
     throw new Error("An unknown error occurred while communicating with the Gemini API.");
   }
