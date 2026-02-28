@@ -1,5 +1,5 @@
 {
-  "name": "Director's Cut",
+  "name": "Video Prompt Generator",
   "description": "Generate a table of video prompts from a narrative, specifying total duration and scene interval. Input your story or script, and the application will break it down into scenes with corresponding video prompts, ready for a video generation model.",
   "requestFramePermissions": []
 }
