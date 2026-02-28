@@ -2,13 +2,23 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { VideoPrompt } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable is not set.");
-}
+export async function generateVideoPrompts(
+  narrative: string, 
+  totalDuration: number, 
+  interval: number, 
+  artStyle: string, 
+  lightingStyle: string, 
+  colorPalette: string,
+  userApiKey?: string
+): Promise<VideoPrompt[]> {
+  const apiKey = userApiKey || process.env.API_KEY;
+  
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please set it in the settings or environment variables.");
+  }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
 
-export async function generateVideoPrompts(narrative: string, totalDuration: number, interval: number, artStyle: string, lightingStyle: string, colorPalette: string): Promise<VideoPrompt[]> {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",

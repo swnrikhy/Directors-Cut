@@ -5,7 +5,7 @@ import type { VideoPrompt } from './types';
 import { PromptTable } from './components/PromptTable';
 import { Spinner } from './components/Spinner';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Clock, Palette, Zap, Wand2, Copy, Check, Info } from 'lucide-react';
+import { Sparkles, Clock, Palette, Zap, Wand2, Copy, Check, Info, Settings, Key } from 'lucide-react';
 
 const ART_STYLES = [
   '3D Pixar', 'Anime', 'Cartoon', 'Cinematic', 'Cyberpunk', 
@@ -34,6 +34,9 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState<boolean>(false);
   const [showStyleGuide, setShowStyleGuide] = useState<boolean>(false);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
+  const [tempApiKey, setTempApiKey] = useState<string>(apiKey);
   const [activeGuideTab, setActiveGuideTab] = useState<'style' | 'lighting' | 'palette'>('style');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -111,7 +114,7 @@ const App: React.FC = () => {
     setPrompts([]);
 
     try {
-      const generatedPrompts = await generateVideoPrompts(narrative, totalDuration, 5, artStyle, lightingStyle, colorPalette);
+      const generatedPrompts = await generateVideoPrompts(narrative, totalDuration, 5, artStyle, lightingStyle, colorPalette, apiKey);
       setPrompts(generatedPrompts);
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
@@ -120,7 +123,13 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [narrative, duration, artStyle, lightingStyle, colorPalette]);
+  }, [narrative, duration, artStyle, lightingStyle, colorPalette, apiKey]);
+
+  const saveApiKey = () => {
+    localStorage.setItem('gemini_api_key', tempApiKey);
+    setApiKey(tempApiKey);
+    setShowSettings(false);
+  };
 
   const handleCopyAll = useCallback(async () => {
     const allPromptsText = prompts.map(p => p.prompt).join('\n\n');
@@ -158,6 +167,16 @@ const App: React.FC = () => {
           >
             Director's Cut
           </motion.h1>
+
+          <div className="absolute top-8 right-8">
+            <button 
+              onClick={() => { setTempApiKey(apiKey); setShowSettings(true); }}
+              className="p-3 rounded-full bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all"
+              title="Settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          </div>
           
           <motion.p 
             initial={{ opacity: 0 }}
@@ -509,6 +528,72 @@ const App: React.FC = () => {
                 >
                   Got it
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowSettings(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md overflow-hidden glass flex flex-col"
+            >
+              <div className="p-6 border-b border-white/10 flex items-center justify-between">
+                <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-purple-400" /> Settings
+                </h2>
+                <button 
+                  onClick={() => setShowSettings(false)}
+                  className="p-2 hover:bg-white/5 rounded-full transition-colors"
+                >
+                  <Zap className="w-5 h-5 text-white/40 rotate-45" />
+                </button>
+              </div>
+              <div className="p-8 space-y-6">
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40">
+                    <Key className="w-3 h-3" /> Gemini API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={tempApiKey}
+                    onChange={(e) => setTempApiKey(e.target.value)}
+                    placeholder="Enter your API key..."
+                    className="input-field font-mono text-sm"
+                  />
+                  <p className="text-[10px] text-white/20 leading-relaxed italic">
+                    Your API key is stored locally in your browser and never sent to our servers. 
+                    If left empty, the application will attempt to use the system default key.
+                  </p>
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button 
+                    onClick={() => setShowSettings(false)}
+                    className="flex-1 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 text-sm font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={saveApiKey}
+                    className="flex-1 btn-primary py-2 text-sm"
+                  >
+                    Save Changes
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
