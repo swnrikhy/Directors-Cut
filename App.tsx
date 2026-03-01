@@ -25,7 +25,8 @@ const COLOR_PALETTES = [
 
 const App: React.FC = () => {
   const [narrative, setNarrative] = useState<string>('');
-  const [duration, setDuration] = useState<string>('00:00');
+  const [mins, setMins] = useState<number>(0);
+  const [secs, setSecs] = useState<number>(0);
   const [artStyle, setArtStyle] = useState<string>('Cinematic');
   const [lightingStyle, setLightingStyle] = useState<string>('Natural Light');
   const [colorPalette, setColorPalette] = useState<string>('Vibrant Colors');
@@ -80,19 +81,14 @@ const App: React.FC = () => {
   const filteredLighting = lightingReferences.filter(l => l.name.toLowerCase().includes(searchQuery.toLowerCase()));
   const filteredPalettes = paletteReferences.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
-  const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '');
-    if (value.length > 4) value = value.slice(0, 4);
-    
-    if (value.length >= 3) {
-      const mins = value.slice(0, value.length - 2);
-      const secs = value.slice(value.length - 2);
-      setDuration(`${mins.padStart(2, '0')}:${secs}`);
-    } else if (value.length > 0) {
-      setDuration(`00:${value.padStart(2, '0')}`);
-    } else {
-      setDuration('00:00');
-    }
+  const handleMinsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value) || 0;
+    setMins(Math.max(0, Math.min(99, val)));
+  };
+
+  const handleSecsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseInt(e.target.value) || 0;
+    setSecs(Math.max(0, Math.min(59, val)));
   };
 
   const handleGenerateClick = useCallback(async () => {
@@ -101,8 +97,7 @@ const App: React.FC = () => {
       return;
     }
 
-    const [mins, secs] = duration.split(':').map(Number);
-    const totalDuration = (mins || 0) * 60 + (secs || 0);
+    const totalDuration = mins * 60 + secs;
 
     if (totalDuration <= 0) {
       setError('Total duration must be greater than 0.');
@@ -123,7 +118,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [narrative, duration, artStyle, lightingStyle, colorPalette, apiKey]);
+  }, [narrative, mins, secs, artStyle, lightingStyle, colorPalette, apiKey]);
 
   const saveApiKey = () => {
     localStorage.setItem('gemini_api_key', tempApiKey);
@@ -205,7 +200,7 @@ const App: React.FC = () => {
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value)}
                   placeholder="Describe your story or sequence here..."
-                  className="input-field h-64 resize-none font-serif text-lg leading-relaxed"
+                  className="input-field h-64 resize-none font-typewriter text-lg leading-relaxed tracking-wide"
                   disabled={isLoading}
                 />
               </div>
@@ -214,17 +209,33 @@ const App: React.FC = () => {
                 <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40">
                   <Clock className="w-3 h-3" /> Total Duration (MM:SS)
                 </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={duration}
-                    onChange={handleDurationChange}
-                    placeholder="00:00"
-                    className="input-field font-mono text-center tracking-widest text-xl"
-                    disabled={isLoading}
-                  />
-                  <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-white/20">Time</span>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-white/20 ml-1">Minutes</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="99"
+                      value={mins}
+                      onChange={handleMinsChange}
+                      placeholder="00"
+                      className="input-field font-mono text-center text-xl"
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <div className="text-xl font-bold text-white/20 pt-6">:</div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-white/20 ml-1">Seconds</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={secs}
+                      onChange={handleSecsChange}
+                      placeholder="00"
+                      className="input-field font-mono text-center text-xl"
+                      disabled={isLoading}
+                    />
                   </div>
                 </div>
               </div>
@@ -296,7 +307,7 @@ const App: React.FC = () => {
 
               <button
                 onClick={handleGenerateClick}
-                disabled={isLoading || !narrative.trim() || duration === '00:00'}
+                disabled={isLoading || !narrative.trim() || (mins === 0 && secs === 0)}
                 className="btn-primary w-full flex items-center justify-center gap-3 group"
               >
                 {isLoading ? (
