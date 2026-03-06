@@ -166,10 +166,10 @@ const App: React.FC = () => {
           <div className="absolute top-8 right-8">
             <button 
               onClick={() => { setTempApiKey(apiKey); setShowSettings(true); }}
-              className="p-3 rounded-full bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all"
-              title="Settings"
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all text-xs font-bold uppercase tracking-widest"
             >
-              <Settings className="w-5 h-5" />
+              <Key className="w-4 h-4" />
+              <span>API Key</span>
             </button>
           </div>
           
@@ -564,7 +564,7 @@ const App: React.FC = () => {
             >
               <div className="p-6 border-b border-white/10 flex items-center justify-between">
                 <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                  <Settings className="w-5 h-5 text-purple-400" /> Settings
+                  <Key className="w-5 h-5 text-purple-400" /> API Key Configuration
                 </h2>
                 <button 
                   onClick={() => setShowSettings(false)}
